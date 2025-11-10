@@ -16,6 +16,7 @@ Shows TWO I-V curves on the same plot:
    - Upward = increasingly negative current
 2. Axis labels: Voltage (X-axis) vs Current (Y-axis) for I-V curves
 3. Data interpretation matches official CurveBug software
+4. Fixed scaling matches original C++ implementation by default
 """
 
 import pygame
@@ -59,6 +60,11 @@ LABEL_COLOR = LIGHT_GRAY
 AXIS_TITLE_COLOR = WHITE
 BORDER_COLOR = GRAY
 DUT_VOLTAGE_COLOR = GREEN
+
+# Fixed scale constants from original C++ code
+ADC_MAX = 2800  # Maximum ADC range
+ADC_ORIGIN = 2048  # Mid-scale ADC reference (12-bit center)
+FLOOR_RATIO = 7.0 / 8.0  # Baseline at 7/8 down the screen
 
 
 # CONFIGURATION HERE
@@ -108,6 +114,7 @@ class CurveTracerDual:
         # Control modes
         self.paused = False
         self.single_channel = False  # S key - show only black trace
+        self.auto_scale = False  # A key - toggle auto-scaling (default: fixed scale)
         self.excitation_mode = 0  # 0=4.7k(T), 1=100k weak(W), 2=alternating(T+W)
 
     def connect(self):
@@ -236,13 +243,29 @@ class CurveTracerDual:
             return False
 
     def draw_trace(self, ch1_voltage, ch2_voltage, ch1_current, ch2_current,
-                   color1, color2, rect, x_min, x_max, y_min, y_max, line_width=3):
-        """Helper function to draw a single trace (DUT1 and optionally DUT2)"""
+                   color1, color2, rect, x_min, x_max, y_min, y_max, floor_ratio, line_width=3):
+        """
+        Helper function to draw a single trace (DUT1 and optionally DUT2)
+
+        floor_ratio: Position of Y=0 baseline (0.0=top, 1.0=bottom)
+                    In fixed mode: 7/8 = 0.875 (matches original C++)
+                    In auto mode: calculated from data range
+        """
         # DUT1 (Blue/Dark Blue) - Black lead
         points1 = []
         for i in range(len(ch1_voltage)):
-            x_norm = (ch1_voltage[i] - x_min) / (x_max - x_min)
-            y_norm = (ch1_current[i] - y_min) / (y_max - y_min)
+            # X-axis normalization (voltage)
+            x_norm = (ch1_voltage[i] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
+
+            # Y-axis normalization (current) - relative to floor
+            # Positive current (below floor), negative current (above floor)
+            y_offset = ch1_current[i] / (y_max - y_min) if y_max != y_min else 0
+            y_norm = floor_ratio + y_offset
+
+            # Clamp to visible range
+            y_norm = max(0.0, min(1.0, y_norm))
+            x_norm = max(0.0, min(1.0, x_norm))
+
             # INVERTED per manual: right-to-left X, top-to-bottom Y
             px = int(rect.right - (x_norm * rect.width))
             py = int(rect.top + (y_norm * rect.height))
@@ -255,8 +278,14 @@ class CurveTracerDual:
         if not self.single_channel:
             points2 = []
             for i in range(len(ch2_voltage)):
-                x_norm = (ch2_voltage[i] - x_min) / (x_max - x_min)
-                y_norm = (ch2_current[i] - y_min) / (y_max - y_min)
+                x_norm = (ch2_voltage[i] - x_min) / (x_max - x_min) if x_max != x_min else 0.5
+
+                y_offset = ch2_current[i] / (y_max - y_min) if y_max != y_min else 0
+                y_norm = floor_ratio + y_offset
+
+                y_norm = max(0.0, min(1.0, y_norm))
+                x_norm = max(0.0, min(1.0, x_norm))
+
                 # INVERTED per manual
                 px = int(rect.right - (x_norm * rect.width))
                 py = int(rect.top + (y_norm * rect.height))
@@ -274,10 +303,19 @@ class CurveTracerDual:
         - Upward = increasingly negative current
 
         Plot: DUT Voltage (CH1/CH2) on X, Current on Y, BOTH AXES INVERTED
+
+        Scaling modes:
+        - Fixed (default): Matches original C++ with ADC_MAX=2800, floor at 7/8
+        - Auto: Scales to fit data range
         """
         pygame.draw.rect(self.screen, GRID_BACKGROUND_COLOR, rect)
 
-        title = self.font.render("I-V Characteristics - Dual DUT Comparison", True, WHITE)
+        title_text = "I-V Characteristics - Dual DUT Comparison"
+        if self.auto_scale:
+            title_text += " [AUTO-SCALE]"
+        else:
+            title_text += " [FIXED SCALE]"
+        title = self.font.render(title_text, True, WHITE)
         title_rect = title.get_rect(center=(rect.centerx, rect.y - 30))
         self.screen.blit(title, title_rect)
 
@@ -288,49 +326,66 @@ class CurveTracerDual:
             pygame.draw.rect(self.screen, BORDER_COLOR, rect, 2)
             return
 
-        # For I-V curves: DUT Voltage (X) vs Current (Y)
-        # In alternating mode, include both std and weak data for range calculation
-        if self.excitation_mode == 2 and len(self.ch1_std) > 0 and len(self.ch1_weak) > 0:
-            # Alternating mode - calculate ranges from both datasets
-            x1_data_std = np.array(self.ch1_voltage_std)
-            x2_data_std = np.array(self.ch2_voltage_std)
-            y1_data_std = np.array(self.ch1_std)
-            y2_data_std = np.array(self.ch2_std)
+        # Determine scaling mode
+        if self.auto_scale:
+            # AUTO-SCALE MODE: Scale to fit data
+            if self.excitation_mode == 2 and len(self.ch1_std) > 0 and len(self.ch1_weak) > 0:
+                # Alternating mode - calculate ranges from both datasets
+                x1_data_std = np.array(self.ch1_voltage_std)
+                x2_data_std = np.array(self.ch2_voltage_std)
+                y1_data_std = np.array(self.ch1_std)
+                y2_data_std = np.array(self.ch2_std)
 
-            x1_data_weak = np.array(self.ch1_voltage_weak)
-            x2_data_weak = np.array(self.ch2_voltage_weak)
-            y1_data_weak = np.array(self.ch1_weak)
-            y2_data_weak = np.array(self.ch2_weak)
+                x1_data_weak = np.array(self.ch1_voltage_weak)
+                x2_data_weak = np.array(self.ch2_voltage_weak)
+                y1_data_weak = np.array(self.ch1_weak)
+                y2_data_weak = np.array(self.ch2_weak)
 
-            # Combine all for range calculation
-            x_min = min(x1_data_std.min(), x2_data_std.min(), x1_data_weak.min(), x2_data_weak.min())
-            x_max = max(x1_data_std.max(), x2_data_std.max(), x1_data_weak.max(), x2_data_weak.max())
-            y_min = min(y1_data_std.min(), y2_data_std.min(), y1_data_weak.min(), y2_data_weak.min())
-            y_max = max(y1_data_std.max(), y2_data_std.max(), y1_data_weak.max(), y2_data_weak.max())
+                # Combine all for range calculation
+                x_min = min(x1_data_std.min(), x2_data_std.min(), x1_data_weak.min(), x2_data_weak.min())
+                x_max = max(x1_data_std.max(), x2_data_std.max(), x1_data_weak.max(), x2_data_weak.max())
+                y_min = min(y1_data_std.min(), y2_data_std.min(), y1_data_weak.min(), y2_data_weak.min())
+                y_max = max(y1_data_std.max(), y2_data_std.max(), y1_data_weak.max(), y2_data_weak.max())
+            else:
+                # Normal mode - use current data
+                x1_data = np.array(self.ch1_voltage)
+                x2_data = np.array(self.ch2_voltage)
+                y1_data = np.array(self.ch1)
+                y2_data = np.array(self.ch2)
+
+                x_min = min(x1_data.min(), x2_data.min())
+                x_max = max(x1_data.max(), x2_data.max())
+                y_min = min(y1_data.min(), y2_data.min())
+                y_max = max(y1_data.max(), y2_data.max())
+
+            x_margin = (x_max - x_min) * 0.1 if x_max > x_min else 100
+            x_min -= x_margin
+            x_max += x_margin
+
+            y_margin = (y_max - y_min) * 0.1 if y_max > y_min else 100
+            y_min -= y_margin
+            y_max += y_margin
+
+            if x_max == x_min:
+                x_max = x_min + 1
+            if y_max == y_min:
+                y_max = y_min + 1
+
+            # Calculate floor position from data
+            floor_ratio = (0 - y_min) / (y_max - y_min) if y_min < 0 < y_max else 0.5
+
         else:
-            # Normal mode - use current data
-            x1_data = np.array(self.ch1_voltage)
-            x2_data = np.array(self.ch2_voltage)
-            y1_data = np.array(self.ch1)
-            y2_data = np.array(self.ch2)
+            # FIXED SCALE MODE: Match original C++ code
+            x_min = 0
+            x_max = ADC_MAX  # 2800
 
-            x_min = min(x1_data.min(), x2_data.min())
-            x_max = max(x1_data.max(), x2_data.max())
-            y_min = min(y1_data.min(), y2_data.min())
-            y_max = max(y1_data.max(), y2_data.max())
+            # Y-axis: Floor at 7/8 down, range optimized for typical curves
+            # Most space above floor (negative current), small space below (positive current)
+            y_range = ADC_MAX - 700  # 2100 ADC units total range
+            y_max = y_range / 8  # 262.5 (positive current, 1/8 of space)
+            y_min = -y_range * 7 / 8  # -1837.5 (negative current, 7/8 of space)
 
-        x_margin = (x_max - x_min) * 0.1 if x_max > x_min else 100
-        x_min -= x_margin
-        x_max += x_margin
-
-        y_margin = (y_max - y_min) * 0.1 if y_max > y_min else 100
-        y_min -= y_margin
-        y_max += y_margin
-
-        if x_max == x_min:
-            x_max = x_min + 1
-        if y_max == y_min:
-            y_max = y_min + 1
+            floor_ratio = FLOOR_RATIO  # 7/8 = 0.875
 
         # Grid
         for i in range(11):
@@ -340,8 +395,14 @@ class CurveTracerDual:
             pygame.draw.line(self.screen, GRID_COLOR, (rect.x, y), (rect.right, y), 1)
 
         # Crosshairs at origin
-        zero_x_norm = (0 - x_min) / (x_max - x_min) if x_min < 0 < x_max else 0.5
-        zero_y_norm = (0 - y_min) / (y_max - y_min) if y_min < 0 < y_max else 0.5
+        if self.auto_scale:
+            # Auto-scale: origin based on data range
+            zero_x_norm = (0 - x_min) / (x_max - x_min) if x_min < 0 < x_max else 0.5
+            zero_y_norm = floor_ratio
+        else:
+            # Fixed scale: origin at ADC 2048 on X-axis, floor line on Y-axis
+            zero_x_norm = (ADC_ORIGIN - x_min) / (x_max - x_min)
+            zero_y_norm = floor_ratio  # 7/8 down
 
         # INVERTED per manual
         zero_x_pos = int(rect.right - (zero_x_norm * rect.width))
@@ -359,29 +420,29 @@ class CurveTracerDual:
                 self.draw_trace(self.ch1_voltage_std, self.ch2_voltage_std,
                                 self.ch1_std, self.ch2_std,
                                 DUT1_CH1_DIMMED, DUT2_CH2_DIMMED,
-                                rect, x_min, x_max, y_min, y_max, line_width=2)
+                                rect, x_min, x_max, y_min, y_max, floor_ratio, line_width=2)
                 # Draw weak trace bright (current)
                 self.draw_trace(self.ch1_voltage_weak, self.ch2_voltage_weak,
                                 self.ch1_weak, self.ch2_weak,
                                 DUT1_CH1_BLACK_LEAD, DUT2_CH2_RED_LEAD,
-                                rect, x_min, x_max, y_min, y_max, line_width=3)
+                                rect, x_min, x_max, y_min, y_max, floor_ratio, line_width=3)
             else:
                 # Just captured std, so weak is older - draw weak dimmed
                 self.draw_trace(self.ch1_voltage_weak, self.ch2_voltage_weak,
                                 self.ch1_weak, self.ch2_weak,
                                 DUT1_CH1_DIMMED, DUT2_CH2_DIMMED,
-                                rect, x_min, x_max, y_min, y_max, line_width=2)
+                                rect, x_min, x_max, y_min, y_max, floor_ratio, line_width=2)
                 # Draw std trace bright (current)
                 self.draw_trace(self.ch1_voltage_std, self.ch2_voltage_std,
                                 self.ch1_std, self.ch2_std,
                                 DUT1_CH1_BLACK_LEAD, DUT2_CH2_RED_LEAD,
-                                rect, x_min, x_max, y_min, y_max, line_width=3)
+                                rect, x_min, x_max, y_min, y_max, floor_ratio, line_width=3)
         else:
             # Normal mode - draw current trace only
             self.draw_trace(self.ch1_voltage, self.ch2_voltage,
                             self.ch1, self.ch2,
                             DUT1_CH1_BLACK_LEAD, DUT2_CH2_RED_LEAD,
-                            rect, x_min, x_max, y_min, y_max, line_width=3)
+                            rect, x_min, x_max, y_min, y_max, floor_ratio, line_width=3)
 
         # Axis labels - INVERTED per manual
 
@@ -470,10 +531,16 @@ class CurveTracerDual:
 
         pause_str = " [PAUSED]" if self.paused else ""
         single_str = " [SINGLE CH]" if self.single_channel else ""
+        scale_str = " [AUTO]" if self.auto_scale else " [FIXED]"
 
-        status = f"Frame: {self.frame_count}  |  FPS: {self.fps:.1f}  |  Mode: {mode_str}{pause_str}{single_str}  |  SPACE=mode P=pause S=single Q=quit"
+        status = f"Frame: {self.frame_count}  |  FPS: {self.fps:.1f}  |  Mode: {mode_str}{pause_str}{single_str}{scale_str}"
         text = self.small_font.render(status, True, GRAY)
         self.screen.blit(text, (20, 15))
+
+        # Controls on second line
+        controls = "SPACE=mode P=pause S=single A=auto-scale Q=quit"
+        text2 = self.small_font.render(controls, True, GRAY)
+        self.screen.blit(text2, (20, 35))
 
     def run(self):
         """Main loop"""
@@ -493,10 +560,14 @@ class CurveTracerDual:
         print("  - Blue curve = DUT1 characteristic (Black lead)")
         print("  - Red curve = DUT2 characteristic (Red lead)")
         print("  - 336 data points per channel (1008 total samples)")
+        print("\nScaling Modes:")
+        print("  - FIXED (default): Matches original C++ - X: 0-2800, Y: floor at 7/8")
+        print("  - AUTO: Scales dynamically to fit data range")
         print("\nKeyboard Controls:")
         print("  SPACEBAR - Cycle excitation: 4.7K ohm, 100K ohm (WEAK), Alternating")
         print("  P        - Pause/Resume scanning")
         print("  S        - Single channel mode (Black trace only)")
+        print("  A        - Toggle Auto-scale / Fixed scale")
         print("  Q/ESC    - Quit")
         print("=" * 70 + "\n")
 
@@ -520,6 +591,11 @@ class CurveTracerDual:
                         # Toggle single channel mode (local only)
                         self.single_channel = not self.single_channel
                         print(f"Single channel (black only): {self.single_channel}")
+                    elif event.key == pygame.K_a:
+                        # Toggle auto-scale mode
+                        self.auto_scale = not self.auto_scale
+                        scale_mode = "AUTO-SCALE" if self.auto_scale else "FIXED SCALE (matches C++)"
+                        print(f"Scale mode: {scale_mode}")
 
             # Acquire data (skip if paused)
             if not self.paused and self.acquire():
