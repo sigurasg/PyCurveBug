@@ -6,13 +6,13 @@ jobs:
     name: Build
     strategy:
       matrix:
-        # os: [ubuntu-latest, windows-latest, macos-latest]
-        os: [macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
       - name: Install MaOS deps
+        if: ${{ matrix.os == 'Darwin' }}
         run: brew install sdl2 sdl2_image sdl2_mixer sdl2_ttf pkg-config
       - name: Install python dependencies
         run: |
