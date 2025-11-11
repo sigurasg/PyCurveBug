@@ -1,8 +1,6 @@
 
 # The latest versions should be fine
-if platform.system() == 'Linux':
-  pygame
-
+pygame; sys_platform == "linux"
 pyserial
 numpy
 pyinstaller
