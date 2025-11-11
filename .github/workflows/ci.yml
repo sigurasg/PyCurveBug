@@ -25,7 +25,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: PyCurveBug-build-${{ matrix.os }}
-          path: pyinstaller_builds/dist/PyCurveBug-*/*
+          path: pyinstaller_builds/dist/
           if-no-files-found: 'error'
   release:
     # if: github.ref_type == 'tag'
@@ -43,6 +43,7 @@ jobs:
         run: |
           find . -type f
       - name: Upload distribution
+        if: False  # Disable automatic upload for now
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
