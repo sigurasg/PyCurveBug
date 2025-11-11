@@ -1,10 +1,13 @@
 # PyCurveBug - Python Curve Viewer for vintageTEK CurveBug
 
-**Note**: This is an independent Python reimplementation based on reverse engineering and the original CurveBug C++ source code. For the official Windows application, please refer to vintageTEK.
+**A Python-based curve tracer viewer for the vintageTEK CurveBug hardware, providing real-time I-V characteristic visualization with dual DUT comparison capabilities.**
 
-![Untitled.png](/Untitled.png)
+**Note**: *This is an independent Python reimplementation based on reverse engineering and the original CurveBug C++ source code. For the official Windows application, please refer to vintageTEK.*
 
-A Python-based curve tracer viewer for the vintageTEK CurveBug hardware, providing real-time I-V characteristic visualization with dual DUT comparison capabilities.
+### Main Application
+![MainApp.png](/screenshots/MainApp.png)
+### Settings Window
+![AllSettings.png](/screenshots/AllSettings.png)
 
 ## Overview
 
@@ -14,14 +17,16 @@ PyCurveBug is a cross-platform alternative to the original Windows CurveBug soft
 - Pan and zoom navigation with fixed scale mode
 - Auto-scaling for dynamic range adjustment
 - Inverted axes matching CurveBug manual specifications
+- Persistent settings configuration file with in app editor.
 
 ## Requirements
 
 ### Software
 - Python 3.7+
-- PySerial
-- PyGame
-- NumPy
+  - PySerial
+  - PyGame
+  - NumPy
+- **PyInstaller** *[only needed if building OS native applications]*
 
 ### Hardware
 - vintageTEK CurveBug device
@@ -34,18 +39,12 @@ PyCurveBug is a cross-platform alternative to the original Windows CurveBug soft
 pip install pyserial pygame numpy
 
 # Clone or download PyCurveBug.py
-# Edit COM port in configuration section (default: COM3)
+# Edit "serial_port" in the curvebug_config.JSON file  (default: COM3)
 ```
 
 ## Configuration
 
-Edit the configuration section at the top of `PyCurveBug.py`:
-
-```python
-SERIAL_COM_PORT = 'COM3'          # Change to your device's COM port
-WINDOW_HEIGHT_SIZE = 1080         # Adjust window size
-WINDOW_WIDTH_SIZE = 1080
-```
+Editing the configuration section at the top of `PyCurveBug.py` is **no longer needed** as the software natively supports persistent settings via configuration file and has editable settings in the application.
 
 ## Usage
 
@@ -167,7 +166,7 @@ Error: Connection to COM3 failed
 ```
 - Verify CurveBug is connected via USB
 - Check Device Manager (Windows) or `ls /dev/tty*` (Linux/Mac) for correct COM port
-- Update `SERIAL_COM_PORT` in configuration
+- Update `serial_port` in configuration json file
 - Try different baud rates if needed (default: 115200)
 
 ### Data Acquisition Errors
@@ -220,6 +219,25 @@ Improvements and bug reports welcome! Key areas:
 - Measurement cursors
 - Peak detection
 
+---
+
+## Building Native OS releases with PyInstaller
+By building native OS releases we can allow others to use a native application without needing python or any other of PyCurveBug requirements.
+
+#### Building Usage:
+Copy `PyCurveBug.py` and `curvebug_config.json` files in the same directory as `build.py` (pyinstaller_build)
+
+#### Run Build Script:
+* Windows: `python build.py` or double-click `build_windows.bat`
+* Linux: `python3 build.py` or `./build_linux.sh`
+* Linux/Mac: `python3 build.py` or `./build_macos.sh`
+
+The script should create a `dist` folder with your compiled executable and distribution packages.
+
+Get in touch with me, so I can upload your Linux/MacOS build in the releases section as I'm only able to build for Windows.
+
+---
+
 ## Credits
 
 - **Original CurveBug**: Robert Puckette, 2024-2025
@@ -240,3 +258,4 @@ This software follows the same MIT licensing as the original CurveBug software. 
 - Three excitation modes
 - Corrected channel mapping from C++ source
 - Proper axis inversion per manual
+- Persistent configuration settings with in app editor
