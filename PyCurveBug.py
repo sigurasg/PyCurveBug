@@ -932,6 +932,35 @@ class CurveTracerDual:
         # Settings button - positioned relative to window size
         self._update_settings_button_position()
 
+    def auto_detect_port(self):
+        """Try to auto-detect CurveBug on available ports"""
+        import serial.tools.list_ports
+
+        ports = [port.device for port in serial.tools.list_ports.comports()]
+
+        for port in ports:
+            try:
+                test_serial = serial.Serial(port, 115200, timeout=1)
+                time.sleep(0.1)
+                test_serial.reset_input_buffer()
+                test_serial.write(b'T')
+
+                data = bytearray()
+                start = time.time()
+                while len(data) < 2016 and time.time() - start < 1.0:
+                    if test_serial.in_waiting > 0:
+                        data.extend(test_serial.read(min(test_serial.in_waiting, 2016 - len(data))))
+
+                test_serial.close()
+
+                if len(data) == 2016:
+                    debug_print(f"Auto-detected CurveBug on {port}")
+                    return port
+            except:
+                continue
+
+        return None
+
     def _load_colors(self):
         """Load colors from config"""
         colors = self.config.get('colors')
@@ -977,8 +1006,22 @@ class CurveTracerDual:
             debug_print(f"Connected to {port}")
             return True
         except Exception as e:
-            port = self.config.get('serial_port')
-            debug_print(f"Connection to {port} failed: {e}")
+            debug_print(f"Connection to {self.config.get('serial_port')} failed: {e}")
+            debug_print("Attempting auto-detection...")
+
+            detected = self.auto_detect_port()
+            if detected:
+                try:
+                    self.serial = serial.Serial(detected, 115200, timeout=1)
+                    time.sleep(0.1)
+                    self.serial.reset_input_buffer()
+                    debug_print(f"Auto-connected to {detected}")
+                    self.config.set(detected, 'serial_port')
+                    self.config.save_config()
+                    return True
+                except:
+                    pass
+
             return False
 
     def get_key_from_config(self, action):
@@ -995,6 +1038,9 @@ class CurveTracerDual:
 
     def acquire(self):
         """Acquire data from CurveBug"""
+        # Allow app to run without connection
+        if self.serial is None or not self.serial.is_open:
+            return False
         try:
             if self.excitation_mode == 0:
                 command = b'T'
@@ -1376,6 +1422,12 @@ class CurveTracerDual:
         self.screen.blit(status_text, (20, 5))
         self.screen.blit(info_text, (20, 20))
 
+        # Show connection status
+        conn_status = "Connected" if (self.serial and self.serial.is_open) else "NOT CONNECTED"
+        conn_color = GREEN if (self.serial and self.serial.is_open) else RED
+        conn_text = self.small_font.render(f"Serial: {conn_status}", True, conn_color)
+        self.screen.blit(conn_text, (self.width - 200, 5))
+
     def run(self):
         """Main loop"""
         running = True
@@ -1524,8 +1576,8 @@ class CurveTracerDual:
 
 def main():
     app = CurveTracerDual()
-    if app.connect():
-        app.run()
+    app.connect()
+    app.run()
     return 0
 
 

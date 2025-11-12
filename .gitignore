@@ -4,3 +4,4 @@
 pyinstaller_builds/PyCurveBug.spec
 pyinstaller_builds/PyCurveBug.py
 pyinstaller_builds/curvebug_config.json
+/__pycache__
