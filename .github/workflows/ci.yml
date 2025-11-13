@@ -1,5 +1,18 @@
 name: ci
-on: [push, pull_request, workflow_dispatch]
+on:
+  push:
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - 'pyinstaller_builds/**'
+      - '.github/workflows/ci.yml'
+  pull_request:
+    paths:
+      - '**.py'
+      - 'requirements.txt'
+      - 'pyinstaller_builds/**'
+      - '.github/workflows/ci.yml'
+  workflow_dispatch:
 
 jobs:
   build:
